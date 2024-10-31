@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Disaster Radio Connection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        #messageList {
+            margin-top: 20px;
+            max-height: 300px; /* Limit the height of the message list */
+            overflow-y: auto; /* Enable scrolling */
+            border: 1px solid #ccc; /* Optional: border for the message list */
+            padding: 10px; /* Optional: padding inside the list */
+        }
+        li {
+            margin-bottom: 5px; /* Space between messages */
+        }
+    </style>
+</head>
+<body>
+    <h1>Disaster Radio Connection</h1>
+    <div id="status">Connecting...</div>
+
+    
+
+    <input type="text" id="messageInput" placeholder="Type your message here..." />
+	<button id="sendButton">Send Message</button>
+    <input type="number" id="intervalInput" placeholder="Interval (seconds)" min="1" />
+    
+    
+    <button id="startSendingButton">Start Sending Messages</button>
+    <button id="stopSendingButton">Stop Sending Messages</button>
+
+    <ul id="messageList"></ul>
+
+<script>
+    const ws = new WebSocket('ws://192.168.4.1/ws');
+    let sendingInterval; // Variable to hold the sending interval
+
+    ws.onopen = () => {
+        console.log("Connected to disaster.radio");
+        document.getElementById("status").textContent = "Connected to disaster.radio";
+
+    };
+
+    ws.onmessage = (event) => {
+        console.log("Received:", event.data);
+
+        if (event.data instanceof Blob) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const message = reader.result;
+                handleMessage(message);
+            };
+            reader.readAsText(event.data);
+        } else {
+            handleMessage(event.data);
+        }
+    };
+
+    function getCurrentTimestamp() {
+        const now = new Date();
+        return now.toLocaleTimeString(); // Format as HH:MM:SS
+    }
+
+    function appendMessageToList(message) {
+        const messageList = document.getElementById("messageList");
+        const newMessage = document.createElement("li");
+        const timestamp = getCurrentTimestamp(); // Get the current timestamp
+        newMessage.textContent = `[${timestamp}] ${message}`; // Prepend timestamp to the message
+        messageList.appendChild(newMessage);
+    }
+//----------------------------------------------------------------------------------------
+function handleMessage(rawMessage) {
+    const lines = rawMessage.split('\n'); // Split by lines
+    lines.forEach(line => {
+        line = line.trim();
+		// Remove the first 6 characters unconditionally
+        line = line.substring(10);
+        // Skip unwanted lines, including messages that are only a timestamp followed by a colon
+        if (!line || /^[^\x20-\x7E]+$/.test(line) || line.length === 1 || line === "r|" || 
+            line.startsWith("r|") || line.includes("□") || line.includes("�") || 
+            /[\u0080-\u00FF]/.test(line) || /^\[\d{2}:\d{2}:\d{2}\]\s*:$/.test(line)) {
+            return; // Skip this line
+        }
+		
+        // Decode control characters for better display
+        const decodedLine = line
+            .replace(/\x01/g, "SOH") // Replace SOH character
+            .replace(/\x02/g, "STX") // Optionally replace other control characters
+            .replace(/\x03/g, "ETX") // Replace ETX character
+            
+           
+        if (decodedLine.startsWith("00c|")) {
+            const displayMessage = decodedLine.substring(4);
+            appendMessageToList(`Info: ${displayMessage}`);
+        } else if (decodedLine.startsWith("c|")) {
+            const displayMessage = decodedLine.substring(2);
+            appendMessageToList(`Command: ${displayMessage}`);
+        } else {
+            appendMessageToList(`Raw: ${decodedLine}`);
+        }
+    });
+}
+
+
+//-----------------------------------------------------------------------------------------------------
+    ws.onerror = (error) => {
+        console.error("WebSocket error:", error);
+    };
+
+    ws.onclose = () => {
+        console.log("Disconnected from disaster.radio");
+        document.getElementById("status").textContent = "Disconnected from disaster.radio";
+    };
+
+    document.getElementById("sendButton").onclick = () => {
+        const messageInput = document.getElementById("messageInput");
+        const userMessage = messageInput.value;
+
+        if (userMessage.trim()) {
+            const msgID = String.fromCharCode(0x01, 0x00);
+            const msgType = 'c';
+            const formattedMessage = `${msgID}${msgType}|${userMessage}`;
+            ws.send(formattedMessage);
+            appendMessageToList(`Sent: ${userMessage}`);
+            console.log("Sent:", formattedMessage);
+            messageInput.value = "";
+        } else {
+            console.log("Message cannot be empty.");
+        }
+    };
+
+    
+//------------------------------------------------------------------------------------------------------
+    // Start sending messages at a user-defined interval
+    document.getElementById("startSendingButton").onclick = () => {
+        const messageInput = document.getElementById("messageInput");
+        const intervalInput = document.getElementById("intervalInput");
+        const intervalSeconds = parseInt(intervalInput.value, 10); // Get the interval in seconds
+
+        if (!sendingInterval && intervalSeconds > 0) { // Prevent multiple intervals
+            sendingInterval = setInterval(() => {
+                const userMessage = messageInput.value;
+                if (userMessage.trim()) {
+                    const msgID = String.fromCharCode(0x01, 0x00);
+                    const msgType = 'c';
+                    const formattedMessage = `${msgID}${msgType}|${userMessage}`;
+                    ws.send(formattedMessage);
+                    appendMessageToList(`Sent: ${userMessage}`);
+                    console.log("Sent:", formattedMessage);
+                }
+            }, intervalSeconds * 1000); // Convert to milliseconds
+        } else {
+            console.log("Please enter a valid interval greater than 0 seconds.");
+        }
+    };
+//----------------------------------------------------------------------------------------------------
+    // Stop sending messages
+    document.getElementById("stopSendingButton").onclick = () => {
+        clearInterval(sendingInterval);
+        sendingInterval = null; // Reset the interval variable
+        appendMessageToList("Stopped sending messages."); // Notify user
+        console.log("Stopped sending messages.");
+    };
+</script>
+</body>
+</html>
