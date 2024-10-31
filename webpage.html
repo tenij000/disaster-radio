@@ -80,7 +80,7 @@ function handleMessage(rawMessage) {
     lines.forEach(line => {
         line = line.trim();
 		// Remove the first 6 characters unconditionally
-        line = line.substring(10);
+        line = line.substring(5);
         // Skip unwanted lines, including messages that are only a timestamp followed by a colon
         if (!line || /^[^\x20-\x7E]+$/.test(line) || line.length === 1 || line === "r|" || 
             line.startsWith("r|") || line.includes("□") || line.includes("�") || 
